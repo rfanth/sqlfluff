@@ -65,7 +65,7 @@ trino_dialect.declare_keyword_sets(
     unimplemented=[],
     future_reserved=[],
     future_reserved_mode="replace",
-    unspecified_parent_keywords="unreserved",
+    unspecified_parent_keywords="unimplemented",
 )
 
 trino_dialect.insert_lexer_matchers(
@@ -215,6 +215,8 @@ trino_dialect.replace(
     LikeGrammar=Sequence("LIKE"),
     # TODO: There are no custom SQL functions in Trino! How to handle this?
     MLTableExpressionSegment=Nothing(),
+    # Trino has no NaN literal, only the nan() function.
+    NanLiteralSegment=Nothing(),
     JoinLikeClauseGrammar=Ref("MatchRecognizeClauseSegment"),
     FromClauseTerminatorGrammar=OneOf(
         "WHERE",
