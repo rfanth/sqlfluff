@@ -24,6 +24,7 @@ def _declare(
     unimplemented: tuple[str, ...] = (),
     future_reserved: tuple[str, ...] = (),
     future_reserved_mode: str = "replace",
+    unspecified_parent_keywords: str = "unreserved",
 ) -> None:
     """Call declare_keyword_sets() with empty lists for those not given."""
     dialect.declare_keyword_sets(
@@ -33,6 +34,7 @@ def _declare(
         unimplemented=list(unimplemented),
         future_reserved=list(future_reserved),
         future_reserved_mode=future_reserved_mode,
+        unspecified_parent_keywords=unspecified_parent_keywords,
     )
 
 
@@ -96,6 +98,7 @@ def test_future_reserved_goes_with_unreserved_or_unimplemented() -> None:
         unimplemented=("ZZLATER",),
         future_reserved=("ZZSOON", "ZZLATER"),
         future_reserved_mode="replace",
+        unspecified_parent_keywords="unreserved",
     )
 
     assert _status(child, "ZZSOON") == [
@@ -180,6 +183,7 @@ def test_no_inherited_word_is_dropped(mode: str) -> None:
         unimplemented=("JOIN",),
         future_reserved=("ORDER",),
         future_reserved_mode="replace",
+        unspecified_parent_keywords="unreserved",
     )
     after = set().union(*(child.sets(label) for label in KEYWORD_STATUS_SETS))
 
@@ -277,9 +281,65 @@ def test_declare_keyword_sets_refuses_a_bad_mode_and_strings() -> None:
             unimplemented=[],
             future_reserved=[],
             future_reserved_mode="replace",
+            unspecified_parent_keywords="unreserved",
         )
+    with pytest.raises(
+        ValueError,
+        match='unspecified_parent_keywords="unreserved" or "unimplemented", not .drop.',
+    ):
+        _declare(child, unspecified_parent_keywords="drop")
     with pytest.raises(TypeError):
         child.declare_keyword_sets(reserved=[], reserved_mode="add")  # type: ignore[call-arg]
+
+
+def test_unspecified_parent_keywords_unimplemented_needs_replace_mode() -> None:
+    """Test that complete lists and kept inherited reserved words are refused.
+
+    unspecified_parent_keywords="unimplemented" says the lists are complete;
+    reserved_mode="add" keeps reserved words they don't list. Both can't hold.
+    """
+    child = _child_of_ansi()
+    with pytest.raises(ValueError, match='Use reserved_mode="replace"'):
+        _declare(child, "add", unspecified_parent_keywords="unimplemented")
+
+
+def test_unspecified_parent_keywords_unimplemented_takes_the_lists_as_complete() -> (
+    None
+):
+    """Test that inherited keywords the call doesn't list become unimplemented.
+
+    The parent's ZZRES and ZZUN aren't listed, so they become unimplemented, as
+    does ZZSOON, listed only as future reserved, which is no present status.
+    Listed words get what they're listed as, and the parent's unimplemented
+    ZZOFF stays so.
+    """
+    parent = _child_of_ansi()
+    _declare(
+        parent,
+        reserved=("ZZRES", "ZZRESKEEP"),
+        unreserved=("ZZUN", "ZZUNKEEP", "ZZSOON"),
+        unimplemented=("ZZOFF",),
+    )
+    child = parent.copy_as("declare_keyword_sets_grandchild")
+    _declare(
+        child,
+        "replace",
+        reserved=("ZZRESKEEP",),
+        unreserved=("ZZUNKEEP",),
+        future_reserved=("ZZSOON",),
+        unspecified_parent_keywords="unimplemented",
+    )
+
+    assert _status(child, "ZZRES") == ["unimplemented_keywords"]
+    assert _status(child, "ZZUN") == ["unimplemented_keywords"]
+    assert _status(child, "ZZSOON") == [
+        "unimplemented_keywords",
+        "future_reserved_keywords",
+    ]
+    assert _status(child, "ZZRESKEEP") == ["reserved_keywords"]
+    assert _status(child, "ZZUNKEEP") == ["unreserved_keywords"]
+    assert _status(child, "ZZOFF") == ["unimplemented_keywords"]
+    assert _status(child, "SELECT") == ["unimplemented_keywords"]
 
 
 def test_error_docs_survive_expand_but_not_inheritance() -> None:
@@ -382,10 +442,16 @@ def _random_call(rng: random.Random) -> dict[str, Any]:
             lists[present].append(word)
         if present != "reserved" and rng.random() < 0.3:
             lists["future_reserved"].append(word)
+    reserved_mode = rng.choice(["add", "replace"])
+    # "unimplemented" needs complete lists, so it only goes with "replace".
+    unspecified = ["unreserved"]
+    if reserved_mode == "replace":
+        unspecified.append("unimplemented")
     return {
         **lists,
-        "reserved_mode": rng.choice(["add", "replace"]),
+        "reserved_mode": reserved_mode,
         "future_reserved_mode": rng.choice(["add", "replace"]),
+        "unspecified_parent_keywords": rng.choice(unspecified),
     }
 
 

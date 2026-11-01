@@ -244,6 +244,7 @@ class Dialect:
         unimplemented: Collection[str],
         future_reserved: Collection[str],
         future_reserved_mode: str,
+        unspecified_parent_keywords: str,
     ) -> None:
         """Safely assign and inherit keywords by changing, not dropping, present status.
 
@@ -270,6 +271,14 @@ class Dialect:
             future_reserved_mode:
                 "add": parent future_reserved are kept, unless reserved above.
                 "replace": parent future_reserved are dropped.
+            unspecified_parent_keywords: What happens to inherited reserved and
+                unreserved words that this call doesn't list as reserved,
+                unreserved or unimplemented.
+                "unreserved": they keep a keyword status, as reserved_mode says
+                "unimplemented": they become unimplemented. This says the lists
+                are complete for the server, so it needs reserved_mode
+                "replace". Run keyword_reference_test.py <dialect> --level
+                notice to see the inherited grammar this switches off.
 
         A word may not lose all present status, as inherited grammar may use it
         either now or after future parent edits. This allows effortless feature
@@ -295,6 +304,20 @@ class Dialect:
                     f'declare_keyword_sets() takes {argument}="add" or '
                     f'"replace", not {mode!r}.'
                 )
+        if unspecified_parent_keywords not in ("unreserved", "unimplemented"):
+            raise ValueError(
+                'declare_keyword_sets() takes unspecified_parent_keywords="unreserved" '
+                f'or "unimplemented", not {unspecified_parent_keywords!r}.'
+            )
+        if unspecified_parent_keywords == "unimplemented" and reserved_mode == "add":
+            raise ValueError(
+                "declare_keyword_sets() was given "
+                'unspecified_parent_keywords="unimplemented", which says these '
+                'lists are complete, and reserved_mode="add", which keeps '
+                "inherited reserved words they don't list. Use "
+                'reserved_mode="replace", or keep the inherited words with '
+                'unspecified_parent_keywords="unreserved".'
+            )
         listed_reserved = self._keyword_words(
             reserved, "declare_keyword_sets", "reserved"
         )
@@ -350,6 +373,12 @@ class Dialect:
         new_unimplemented = (
             inherited_unimplemented - listed_reserved - listed_unreserved
         ) | listed_unimplemented
+        if unspecified_parent_keywords == "unimplemented":
+            # The lists are complete, so an inherited keyword they don't give a
+            # present status isn't one here.
+            new_unimplemented |= (inherited_reserved | inherited_unreserved) - (
+                listed_reserved | listed_unreserved | listed_unimplemented
+            )
         # Unimplemented wins over an inherited keyword status, as it does in
         # expand(), so the sets never overlap.
         new_reserved -= new_unimplemented

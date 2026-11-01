@@ -60,6 +60,7 @@ exasol_dialect.declare_keyword_sets(
     unimplemented=[],
     future_reserved=[],
     future_reserved_mode="replace",
+    unspecified_parent_keywords="unreserved",
 )
 exasol_dialect.sets("bare_functions").clear()
 exasol_dialect.sets("bare_functions").update(BARE_FUNCTIONS)

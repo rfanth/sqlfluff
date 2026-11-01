@@ -28,6 +28,13 @@ audit tests lock them in, in CI.
    them, and RF06 (only with prefer_quoted_keywords) treats them as keywords.
    Both may flag names they arguably shouldn't.
 
+   Every inherited keyword you don't list stays a keyword with
+   unspecified_parent_keywords="unreserved". If your lists come from the
+   server's complete keyword list, pass "unimplemented" instead (with
+   reserved_mode="replace"), and those words become unimplemented. Then do
+   step 4, and list any word the server uses that its published list leaves
+   out.
+
 This is a good place to stop. You never have to do step 3 or later, but if you
 want RF04 cleaned up, or you know for sure your server doesn't use a word, do
 step 3 too.
@@ -1353,6 +1360,7 @@ def test_keyword_names_taken_by_classes_are_found() -> None:
             unimplemented=lists["unimplemented"],
             future_reserved=[],
             future_reserved_mode="replace",
+            unspecified_parent_keywords="unreserved",
         )
         listed_expanded = listed.expand()
         statuses[status] = _keyword_names_taken_by_classes(listed_expanded)
@@ -1702,6 +1710,7 @@ def _declare(dialect: Dialect, mode: str = "add", **lists: list[str]) -> None:
         unimplemented=lists.get("unimplemented", []),
         future_reserved=lists.get("future_reserved", []),
         future_reserved_mode="replace",
+        unspecified_parent_keywords="unreserved",
     )
 
 

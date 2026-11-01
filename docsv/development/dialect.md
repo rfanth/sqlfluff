@@ -297,13 +297,18 @@ mariadb_dialect.declare_keyword_sets(
     unimplemented=[],
     future_reserved=[],
     future_reserved_mode="replace",
+    unspecified_parent_keywords="unreserved",
 )
 ```
 
 Each listed word gets that status. With `reserved_mode="replace"` the reserved
 list is the complete list, and any reserved word the dialect inherits but
 doesn't list becomes unreserved; with `"add"` the parent's reserved words stay.
-Nothing is ever dropped from having a present status. Avoid
+`unspecified_parent_keywords` says what happens to the inherited keywords the
+call doesn't list: `"unreserved"` keeps them as keywords, and `"unimplemented"`
+says the lists are complete for the server, so they become unimplemented (this
+needs `reserved_mode="replace"`). Nothing is ever dropped from having a present
+status. Avoid
 `sets("reserved_keywords").clear()`: it drops the parent's words, and any of
 the parent's grammar that uses one then crashes in your dialect.
 

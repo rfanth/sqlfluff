@@ -377,6 +377,7 @@ postgres_dialect.declare_keyword_sets(
     unimplemented=get_keywords(postgres_keywords, "not-keyword"),
     future_reserved=[],
     future_reserved_mode="replace",
+    unspecified_parent_keywords="unreserved",
 )
 
 # Track the `col_name_keyword` class (PostgreSQL's
