@@ -1,6 +1,5 @@
 """Tests specific to the postgres dialect."""
 
-from collections import Counter
 from typing import Callable
 
 import pytest
@@ -249,24 +248,56 @@ def test_priority_keyword_merge_leaves_its_inputs_alone() -> None:
 
 
 def test_priority_keyword_merge_keeps_one_entry_per_keyword() -> None:
-    """Test that a keyword listed twice ends up once, with its last status.
+    """Test that a keyword in two lists ends up once, with the later status.
 
-    The list version could keep a keyword twice with two statuses: when it was
-    repeated in the first list, or in a later list that added it. get_keywords()
-    would then put it in two sets that contradict each other.
+    The list version could keep a keyword twice with two statuses when a later
+    list added it. get_keywords() would then put it in two sets that
+    contradict each other.
     """
-    first = [("A", "not-keyword"), ("A", "non-reserved"), ("B", "reserved")]
-    later = [("C", "reserved"), ("C", "non-reserved"), ("B", "non-reserved")]
+    first = [("A", "not-keyword"), ("B", "reserved")]
+    later = [("C", "reserved"), ("A", "non-reserved"), ("B", "non-reserved")]
 
     assert priority_keyword_merge(first, later) == [
+        ("C", "reserved"),
         ("A", "non-reserved"),
-        ("C", "non-reserved"),
         ("B", "non-reserved"),
     ]
-    assert priority_keyword_merge(first) == [
-        ("A", "non-reserved"),
+
+
+@pytest.mark.parametrize(
+    "use",
+    [
+        lambda keyword_list: priority_keyword_merge(keyword_list),
+        lambda keyword_list: priority_keyword_merge([("Z", "reserved")], keyword_list),
+        lambda keyword_list: get_keywords(keyword_list, "reserved"),
+    ],
+    ids=["merge-first", "merge-later", "get-keywords"],
+)
+def test_a_keyword_repeated_in_one_list_is_refused(
+    use: Callable[[list[tuple[str, str]]], object],
+) -> None:
+    """Test that a keyword given twice in one list is refused, with its statuses.
+
+    Only one of the two entries can be meant, so taking either would hide the
+    mistake. A repeat across lists is the merge's job and is allowed.
+    """
+    keyword_list = [
+        ("A", "not-keyword"),
         ("B", "reserved"),
+        ("A", "non-reserved"),
+        ("C", "reserved"),
+        ("C", "reserved"),
     ]
+
+    with pytest.raises(ValueError) as error:
+        use(keyword_list)
+
+    assert str(error.value) == (
+        "These keywords are listed more than once in one keyword list: "
+        "A (not-keyword, non-reserved); C (reserved, reserved). Keep one entry "
+        "for each; to change a keyword's status, give it in a later list passed "
+        "to priority_keyword_merge()."
+    )
 
 
 @pytest.mark.parametrize(
@@ -282,17 +313,14 @@ def test_priority_keyword_merge_keeps_one_entry_per_keyword() -> None:
 def test_postgres_keyword_layers_list_each_keyword_once(
     keyword_list: list[tuple[str, str]],
 ) -> None:
-    """Test that each keyword layer is (keyword, status) pairs, no keyword twice.
+    """Test that each keyword layer is (keyword, status) pairs.
 
-    A keyword listed twice in one layer has two statuses there, and the merge
-    silently keeps the last; one of the two is a mistake to fix in the layer.
+    A keyword listed twice in a layer is refused when the layers are merged,
+    on import.
     """
     for entry in keyword_list:
         assert isinstance(entry, tuple) and len(entry) == 2, entry
         assert all(isinstance(part, str) for part in entry), entry
-    counts = Counter(keyword for keyword, _ in keyword_list)
-    repeated = sorted(keyword for keyword, count in counts.items() if count > 1)
-    assert not repeated, f"Listed more than once in this layer: {repeated}"
 
 
 def test_get_keywords() -> None:
