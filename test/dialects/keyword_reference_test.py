@@ -1226,6 +1226,12 @@ def _unimplemented_with_own_segment_message(
     for word, module in sorted(found.items()):
         segment_name = word.capitalize() + "KeywordSegment"
         lines.append(f"- {word}: {segment_name}, defined in {_dialect_file(module)}")
+    if any(module != f"dialect_{name}" for module in found.values()):
+        lines.append(
+            f"  Some of these segments come from a dialect {name} inherits from. "
+            f"To drop one for {name} alone, replace it with Nothing() in {name}. "
+            "Changing the original changes every dialect that uses it."
+        )
     return "\n".join(lines) + _docs_line(dialect)
 
 
@@ -1544,8 +1550,10 @@ def test_keyword_parsers_accepting_unimplemented_are_found(monkeypatch) -> None:
 def test_unimplemented_with_own_segment_is_found() -> None:
     """Test the check finds a dialect's own segment and an inherited one.
 
-    hive defines TextfileKeywordSegment, so a child of hive that declares
-    TEXTFILE unimplemented inherits the contradiction from hive.
+    hive defines TextfileKeywordSegment. A child of hive that declares
+    TEXTFILE unimplemented contradicts the segment it inherits, and is told
+    how to drop it for itself alone; a dialect's own segment needs no such
+    note.
     """
     own = load_raw_dialect("ansi").copy_as("zzownsegment")
     own.add(ZzownKeywordSegment=StringParser("zzown", KeywordSegment))
@@ -1563,6 +1571,11 @@ def test_unimplemented_with_own_segment_is_found() -> None:
     assert inherited_found == {"TEXTFILE": "dialect_hive"}
     assert "- TEXTFILE: TextfileKeywordSegment, defined in" in message
     assert "dialect_hive.py" in message
+    assert "replace it with Nothing() in zzhivechild" in message
+    own_message = _flat(
+        _unimplemented_with_own_segment_message(own.expand(), own_found)
+    )
+    assert "replace it with Nothing()" not in own_message
 
 
 @pytest.mark.parametrize("dialect_name", AUDITED_DIALECTS)
