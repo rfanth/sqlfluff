@@ -228,20 +228,44 @@ def _defining_module(dialect: Dialect, element_name: str) -> str:
     """The dialect module where a named library element was first defined.
 
     Dialects inherit their parent's library as is, so the defining dialect is
-    the furthest ancestor still holding the very same object. A dialect built
-    in a test isn't loadable by name, so the walk starts from it as given.
+    the furthest ancestor still holding the very same object.
     """
-    try:
-        current = load_raw_dialect(dialect.name)
-    except KeyError:
-        current = dialect
-    element = current._library.get(element_name)
-    while current.inherits_from:
-        parent = load_raw_dialect(current.inherits_from)
+    lineage = _lineage(dialect)
+    element = lineage[0]._library.get(element_name)
+    current = lineage[0]
+    for parent in lineage[1:]:
         if parent._library.get(element_name) is not element:
             break
         current = parent
     return f"dialect_{current.name}"
+
+
+# One lineage per dialect object. load_raw_dialect() rescans the dialect's
+# module each time it is called, and the checks name where elements were
+# defined tens of thousands of times, so loading the ancestors once per
+# dialect is most of what keeps the audit quick. Keyed weakly, like _WALKS.
+_LINEAGES: "WeakKeyDictionary[Dialect, list[Dialect]]" = WeakKeyDictionary()
+
+
+def _lineage(dialect: Dialect) -> list[Dialect]:
+    """The raw dialect and each of its ancestors, nearest first, loaded once.
+
+    A dialect built in a test isn't loadable by name, so the lineage starts
+    from it as given.
+    """
+    cached = _LINEAGES.get(dialect)
+    if cached is not None:
+        return cached
+    try:
+        current = load_raw_dialect(dialect.name)
+    except KeyError:
+        current = dialect
+    lineage = [current]
+    while current.inherits_from:
+        current = load_raw_dialect(current.inherits_from)
+        lineage.append(current)
+    _LINEAGES[dialect] = lineage
+    return lineage
 
 
 # One walk per dialect object: the checks each need it, and a walk takes
