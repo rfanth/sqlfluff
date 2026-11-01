@@ -3,12 +3,12 @@
 How to set up a dialect's keywords
 ==================================
 
-Every keyword has a status: reserved (never a name), unreserved (a keyword
-that can also be a name), or unimplemented (the dialect's server doesn't have
-it). These don't overlap. Future reserved is a tag that can go with unreserved
-or unimplemented. A dialect sets its statuses with one call to
+Every keyword has a present status: reserved (never a name), unreserved (a
+keyword that can also be a name), or unimplemented (the dialect's server
+doesn't have it). These don't overlap. Future reserved is a future status that
+can go with unreserved or unimplemented. A dialect sets its statuses with one call to
 declare_keyword_sets() (see its docstring in src/sqlfluff/core/dialects/
-base.py). A word the grammar uses with no status at all crashes the parser.
+base.py). A word the grammar uses with no present status crashes the parser.
 
 The essentials. You get these almost for free by using declare_keyword_sets(),
 and for an audited dialect (every dialect not in UNAUDITED_DIALECTS below) the
@@ -94,7 +94,7 @@ however it built them:
   segments, bracket pairs, and those inside a Ref's exclude= and terminators=.
   One that doesn't crashes the parser on any statement that reaches the rule
   using it, even when the statement doesn't contain the word. A word that is
-  only future reserved doesn't resolve: future reserved is a tag, not a status.
+  only future reserved doesn't resolve: it has no present status.
 - Its keyword lists hold only words, or words joined by - or a space.
 - Its own grammar doesn't use its unimplemented words.
 
@@ -712,9 +712,9 @@ def _missing_keywords_message(dialect: Dialect, keywords: dict[str, set[Owner]])
         hint = _not_a_word(word)
         if not hint and word in future:
             hint = (
-                f" {word} is only future reserved, which is a tag for what the "
-                "vendor plans, not a status, so it doesn't resolve on its own. It "
-                "needs a present status too, usually unreserved, keeping the tag."
+                f" {word} is only future reserved, a future status, so it "
+                "doesn't resolve on its own. To resolve, it needs a present "
+                "status too, usually unreserved."
             )
         if not hint:
             match = get_close_matches(word, known, n=1, cutoff=0.8)
@@ -2067,7 +2067,7 @@ class _FutureSegment(BaseSegment):
 
 
 def _future_dialect(name: str, also_unreserved: bool) -> Dialect:
-    """An ansi copy whose grammar uses ZZFUTURE, tagged future reserved."""
+    """An ansi copy whose grammar uses ZZFUTURE, which is future reserved."""
     dialect = load_raw_dialect("ansi").copy_as(name)
     dialect.replace(SelectClauseModifierSegment=_FutureSegment)
     if also_unreserved:
@@ -2078,7 +2078,7 @@ def _future_dialect(name: str, also_unreserved: bool) -> Dialect:
 
 
 def test_a_grammar_keyword_that_is_only_future_reserved_is_missing() -> None:
-    """Test that the future tag alone doesn't make a grammar keyword resolve.
+    """Test that future reserved alone doesn't make a grammar keyword resolve.
 
     The audit reports it as a missing keyword, says why, and lists every
     future-only word as info, so nobody is puzzled by one.
@@ -2095,7 +2095,7 @@ def test_a_grammar_keyword_that_is_only_future_reserved_is_missing() -> None:
     findings = {f.title: f for f in _audit_findings("zzfuture", only_future)}
 
     assert "ZzfutureKeywordSegment" in unresolved
-    assert "ZZFUTURE is only future reserved, which is a tag" in message
+    assert "ZZFUTURE is only future reserved, a future status" in message
     assert "ZzfutureKeywordSegment" not in _unresolved_references(with_status)
     assert findings["Keywords only future reserved"].level == "info"
     assert "ZZFUTURE" in findings["Keywords only future reserved"].message
@@ -2340,7 +2340,7 @@ def _settled_unimplemented_message(name: str, words: list[str]) -> str:
 
 
 def _future_only_words(dialect: Dialect) -> list[str]:
-    """Words whose only mark in the dialect is the future reserved tag."""
+    """Words whose only status in the dialect is future reserved."""
     present = set().union(
         *(
             dialect.sets(label)
@@ -2358,7 +2358,7 @@ def _future_only_message(name: str, words: list[str]) -> str:
     """Explain words that are only future reserved, so they don't puzzle anyone."""
     return "\n".join(
         [
-            f"These words have only the future reserved tag in {name}. The vendor "
+            f"These words are only future reserved in {name}. The vendor "
             "plans to reserve them, but they have no present status, so they "
             "aren't keywords now: grammar can't use them (a reference to one "
             "doesn't resolve), and lint rules see them only as future reserved. "

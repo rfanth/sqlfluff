@@ -109,8 +109,9 @@ class Dialect:
                 expanded_copy.replace(**{key: seg_gen.expand(expanded_copy)})
         # Expand any keyword sets. A word with a present status that makes it
         # a keyword gets a parser. Unimplemented words resolve to Nothing()
-        # below. Future reserved is a tag, not a present status, so a word
-        # that only has it gets nothing: grammar that uses it fails to resolve.
+        # below. Future reserved is a future status, not a present one, so a
+        # word that only has it gets nothing: grammar that uses it fails to
+        # resolve.
         unimplemented = expanded_copy.sets("unimplemented_keywords")
         for keyword_set in ("reserved_keywords", "unreserved_keywords"):
             for kw in expanded_copy.sets(keyword_set):
@@ -263,8 +264,9 @@ class Dialect:
                 implement. In inherited grammar, they evaluate to Nothing()
                 and stop matching. You can see which ones block grammar with
                 keyword_reference_test.py <dialect> --level notice
-            future_reserved: Words the vendor says will become reserved. A tag
-                that may go with unreserved, unimplemented, or unlisted words.
+            future_reserved: Words the vendor says will become reserved. A
+                future status, which may go with unreserved, unimplemented, or
+                no present status.
             future_reserved_mode:
                 "add": parent future_reserved are kept, unless reserved above.
                 "replace": parent future_reserved are dropped.

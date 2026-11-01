@@ -262,9 +262,9 @@ Each keyword has a status:
 - **Unimplemented**: the dialect's database doesn't have it, so it is just a
   name. The parts of inherited grammar that need it don't match in this
   dialect; the rest of each rule still does.
-- **Future reserved**: the vendor says it will become reserved. This is a tag
-  rather than a status: it is never reserved, but it can also be unreserved
-  or unimplemented.
+- **Future reserved**: the vendor says it will become reserved. This is a
+  future status, not a present one: it never goes with reserved, but it can go
+  with unreserved or unimplemented.
 
 Reserved, unreserved and unimplemented don't overlap.
 
@@ -318,7 +318,7 @@ its `UNAUDITED_DIALECTS`. For an audited dialect it fails if:
 
 - a word has two statuses that can't go together;
 - grammar refers to a keyword or segment the dialect doesn't have (a word that
-  is only future reserved counts: future reserved is a tag, not a status);
+  is only future reserved counts: it has no present status);
 - a keyword list holds something that isn't a word;
 - the dialect's own grammar uses one of its unimplemented words.
 

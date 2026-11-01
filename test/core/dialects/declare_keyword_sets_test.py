@@ -88,7 +88,7 @@ def test_a_call_cant_list_a_word_twice(first: str, second: str) -> None:
 
 
 def test_future_reserved_goes_with_unreserved_or_unimplemented() -> None:
-    """Test the two overlaps a call may make: they're tags, not statuses."""
+    """Test the two overlaps a call may make: future reserved with a present status."""
     child = _child_of_ansi()
     _declare(
         child,
@@ -124,7 +124,7 @@ def test_a_word_listed_only_as_unimplemented_is_just_a_name(mode: str) -> None:
 
 
 def test_listing_a_keyword_switches_inherited_grammar_back_on() -> None:
-    """Test that a child listing a parent's unimplemented word un-tags it."""
+    """Test that a child listing a parent's unimplemented word implements it."""
     parent = _child_of_ansi()
     _declare(parent, unimplemented=("ZZOFF", "ZZRESOFF"))
     child = parent.copy_as("declare_keyword_sets_grandchild")
@@ -193,12 +193,12 @@ def _with_future_parent() -> Dialect:
     return parent
 
 
-def test_future_reserved_replace_mode_drops_the_parents_tags() -> None:
+def test_future_reserved_replace_mode_drops_the_parents_future_words() -> None:
     """Test that replace keeps only this call's future list.
 
-    Future reserved is a tag, not a present status, so dropping it leaves a
-    word's present status alone: ZZLATER stays unreserved, and ZZSOON, which
-    only had the tag, ends up with nothing.
+    Future reserved is a future status, not a present one, so dropping it
+    leaves a word's present status alone: ZZLATER stays unreserved, and ZZSOON,
+    which was only future reserved, ends up with nothing.
     """
     child = _with_future_parent().copy_as("declare_keyword_sets_grandchild")
     _declare(child, future_reserved=("ZZNEW",), future_reserved_mode="replace")
@@ -208,7 +208,7 @@ def test_future_reserved_replace_mode_drops_the_parents_tags() -> None:
     assert _status(child, "ZZSOON") == []
 
 
-def test_future_reserved_add_mode_keeps_the_parents_tags() -> None:
+def test_future_reserved_add_mode_keeps_the_parents_future_words() -> None:
     """Test that add keeps the parent's future list and adds to it."""
     child = _with_future_parent().copy_as("declare_keyword_sets_grandchild")
     _declare(child, future_reserved=("ZZNEW",), future_reserved_mode="add")
@@ -217,8 +217,8 @@ def test_future_reserved_add_mode_keeps_the_parents_tags() -> None:
 
 
 @pytest.mark.parametrize("future_mode", ["add", "replace"])
-def test_a_future_word_listed_as_reserved_loses_the_tag(future_mode: str) -> None:
-    """Test that reserving an inherited future reserved word drops its tag."""
+def test_a_future_word_listed_as_reserved_is_no_longer_future(future_mode: str) -> None:
+    """Test that reserving an inherited future reserved word drops future reserved."""
     child = _with_future_parent().copy_as("declare_keyword_sets_grandchild")
     _declare(child, reserved=("ZZSOON",), future_reserved_mode=future_mode)
 
@@ -423,11 +423,11 @@ def test_a_parent_change_never_takes_a_word_from_a_child() -> None:
 
 
 def test_a_word_that_is_only_future_reserved_does_not_resolve() -> None:
-    """Test that the future tag alone gives a word no keyword parser.
+    """Test that future reserved alone gives a word no keyword parser.
 
-    Future reserved is a tag, not a present status: grammar that uses such a
-    word fails to resolve, so the audit reports it, and lint rules still see
-    the tag in the set.
+    Future reserved is a future status, not a present one: grammar that uses
+    such a word fails to resolve, so the audit reports it, and lint rules
+    still see the word in the future reserved set.
     """
     child = _child_of_ansi()
     _declare(child, unreserved=("ZZSOON",), future_reserved=("ZZSOON", "ZZLATER"))
