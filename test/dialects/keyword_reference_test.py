@@ -24,9 +24,9 @@ audit tests lock them in, in CI.
    Postgres manages this well internally (dialect_postgres_keywords.py), but
    other ways are fine; it's up to the dialect.
 
-   Too many unreserved words costs almost nothing: RF04 and RF06 (both off by
-   default, and RF06 only with prefer_quoted_keywords) treat them as keywords
-   and may flag names they arguably shouldn't.
+   Too many unreserved words costs little: RF04 flags aliases named after
+   them, and RF06 (only with prefer_quoted_keywords) treats them as keywords.
+   Both may flag names they arguably shouldn't.
 
 This is a good place to stop. You never have to do step 3 or later, but if you
 want RF04 cleaned up, or you know for sure your server doesn't use a word, do
@@ -2206,8 +2206,9 @@ def _unused_finding(name: str, dialect: Dialect) -> "Finding | None":
     from_parent = [word for word in unused if word in inherited]
     own = [word for word in unused if word not in inherited]
     lines = [
-        "These do no harm: nothing refers to them, so they can't change any "
-        "parse. RF04 (off by default) treats them as keywords. This is an "
+        "These do no harm to parsing: nothing refers to them, so they can't "
+        "change any parse. RF04 treats them as keywords, so it flags aliases "
+        "named after them. This is an "
         "inventory: syntax sqlfluff may not parse yet, or words that can come "
         "out of a list."
     ]
