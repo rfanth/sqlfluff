@@ -1027,10 +1027,22 @@ def _keywords_without_a_parser_message(
         f"These words are reserved or unreserved in {name}, but what is "
         "registered under their <Word>KeywordSegment name isn't a parser for "
         "them. expand() makes no parser when the name is taken, so the word "
-        "never parses as a keyword. Nothing crashes. Remove the entry so "
-        "expand() makes the parser, or, if the database doesn't have the word, "
-        "declare it unimplemented instead."
+        "never parses as a keyword. Nothing crashes."
     ]
+    kinds = {kind for kind, _ in found.values()}
+    if "Nothing" in kinds:
+        lines[0] += (
+            " Where it is a Nothing(), the word was switched off by hand. If the "
+            "database doesn't have the word, declare it unimplemented as well, "
+            "so the keyword lists agree. If it does, remove the Nothing() so the "
+            "word gets its parser back."
+        )
+    if kinds - {"Nothing"}:
+        lines[0] += (
+            " Where it is other grammar, that grammar is sitting on the "
+            "keyword's name: give the grammar a name of its own, so the word "
+            "gets its parser back."
+        )
     for word, (kind, module) in sorted(found.items()):
         segment_name = word.capitalize() + "KeywordSegment"
         lines.append(
@@ -1415,7 +1427,9 @@ def test_keywords_without_a_parser_are_found() -> None:
     """Test Nothing() and a Sequence under unreserved words' names.
 
     ZZFOO and ZZSEQ are unreserved, so each needs a parser. ZZOFF is
-    unimplemented, where Nothing() is what expand() would make anyway.
+    unimplemented, where Nothing() is what expand() would make anyway. Each
+    kind gets its own advice: unimplemented fits a word switched off with
+    Nothing(), not grammar sitting on a keyword's name.
     """
     dialect = load_raw_dialect("ansi").copy_as("zznoparser")
     dialect.add(
@@ -1434,6 +1448,11 @@ def test_keywords_without_a_parser_are_found() -> None:
     }
     assert not _unimplemented_with_own_segment(expanded)
     assert "- ZZFOO: ZzfooKeywordSegment is a Nothing, defined in" in message
+    assert "declare it unimplemented as well" in message
+    assert "give the grammar a name of its own" in message
+    only_grammar = {"ZZSEQ": found["ZZSEQ"]}
+    grammar_message = _flat(_keywords_without_a_parser_message(expanded, only_grammar))
+    assert "unimplemented" not in grammar_message
 
 
 @pytest.mark.parametrize("dialect_name", ALL_DIALECTS)
