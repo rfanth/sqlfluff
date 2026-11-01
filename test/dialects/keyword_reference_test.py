@@ -17,7 +17,8 @@ audit tests lock them in, in CI.
 1. Get the reserved keywords from the docs, or better, from the server's own
    grammar or keyword table: docs can be wrong. Pass them as reserved=, with
    reserved_mode="replace", so the list is exhaustive and any reserved word
-   you inherit and don't list becomes unreserved.
+   you inherit and don't list becomes unreserved (or unimplemented: see
+   unspecified_parent_keywords in step 2).
 
 2. Get the unreserved keywords the same way and pass them as unreserved=.
    Also add any words sqlfluff's grammar needs that aren't in the docs.

@@ -258,7 +258,8 @@ class Dialect:
             reserved_mode: What happens to inherited reserved words that aren't
                 explicitly given another status by the caller.
                 "add": they are kept reserved
-                "replace": they become unreserved
+                "replace": they become unreserved, or unimplemented with
+                unspecified_parent_keywords "unimplemented"
             unreserved: Words that are keywords in some places and names in
                 others.
             unimplemented: Words the dialect's server (not sqlfluff) doesn't
@@ -346,8 +347,9 @@ class Dialect:
 
         if reserved_mode == "replace":
             new_reserved = listed_reserved
-            # Unlisted inherited reserved words become unreserved. A word the
-            # call lists anywhere gets exactly what it says instead.
+            # Unlisted inherited reserved words become unreserved, unless
+            # unspecified_parent_keywords makes them unimplemented below. A word
+            # the call lists anywhere gets exactly what it says instead.
             demoted = (
                 inherited_reserved
                 - listed_reserved

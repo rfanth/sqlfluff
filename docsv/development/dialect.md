@@ -303,7 +303,9 @@ mariadb_dialect.declare_keyword_sets(
 
 Each listed word gets that status. With `reserved_mode="replace"` the reserved
 list is the complete list, and any reserved word the dialect inherits but
-doesn't list becomes unreserved; with `"add"` the parent's reserved words stay.
+doesn't list becomes unreserved, or unimplemented with
+`unspecified_parent_keywords="unimplemented"`; with `"add"` the parent's
+reserved words stay.
 `unspecified_parent_keywords` says what happens to the inherited keywords the
 call doesn't list: `"unreserved"` keeps them as keywords, and `"unimplemented"`
 says the lists are complete for the server, so they become unimplemented (this
