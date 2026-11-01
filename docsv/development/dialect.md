@@ -328,7 +328,8 @@ For every dialect, audited or not, it also fails if:
 - a parser registered as `<Word>KeywordSegment` doesn't match WORD;
 - a reserved or unreserved word's `<Word>KeywordSegment` isn't a parser (for
   example a hand-made `Nothing()`);
-- an unimplemented word has a hand-made matcher under its name;
+- an unimplemented word has a hand-made matcher under its name, or a parser
+  that makes a `KeywordSegment` accepts it;
 - a keyword's `<Word>KeywordSegment` name is taken by a segment class, which
   is an error, since grammar using that keyword crashes the parser.
 

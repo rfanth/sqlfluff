@@ -101,7 +101,8 @@ Every dialect, audited or not, is also held to these:
   other forms too).
 - A reserved or unreserved word's <Word>KeywordSegment is a parser, not
   Nothing() or other grammar put there by hand.
-- An unimplemented word has no hand-made matcher under its name.
+- An unimplemented word has no hand-made matcher under its name, and no
+  parser that makes a KeywordSegment accepts it.
 - No keyword's <Word>KeywordSegment name is taken by a segment class. This one
   is an error: grammar using such a keyword crashes the parser.
 
@@ -138,7 +139,7 @@ import sys
 import textwrap
 from collections.abc import Iterator, Mapping
 from difflib import get_close_matches
-from typing import NamedTuple, cast
+from typing import NamedTuple, Union, cast
 from weakref import WeakKeyDictionary
 
 import pytest
@@ -154,6 +155,7 @@ from sqlfluff.core.dialects.base import (
 )
 from sqlfluff.core.parser import (
     BaseSegment,
+    CodeSegment,
     KeywordSegment,
     MultiStringParser,
     StringParser,
@@ -246,7 +248,27 @@ def _defining_module(dialect: Dialect, element_name: str) -> str:
 # hundreds of milliseconds. Keyed weakly, so a dialect built for one test is
 # forgotten with it. The walk follows the library, which doesn't change after
 # expand(), so later changes to keyword sets don't make it stale.
-_WALKS: "WeakKeyDictionary[Dialect, list[tuple[Owner, Ref]]]" = WeakKeyDictionary()
+TemplateParser = Union[StringParser, MultiStringParser]
+
+
+class _Walk(NamedTuple):
+    """What a walk of a dialect's grammar found, each with where it is used."""
+
+    refs: list[tuple[Owner, Ref]]
+    parsers: list[tuple[Owner, TemplateParser]]
+
+
+_WALKS: "WeakKeyDictionary[Dialect, _Walk]" = WeakKeyDictionary()
+
+
+def _cached_walk(dialect: Dialect) -> _Walk:
+    """The dialect's walk, made once."""
+    cached = _WALKS.get(dialect)
+    if cached is not None:
+        return cached
+    found = _walk_grammar(dialect)
+    _WALKS[dialect] = found
+    return found
 
 
 def _reference_walk(dialect: Dialect) -> list[tuple[Owner, Ref]]:
@@ -256,17 +278,22 @@ def _reference_walk(dialect: Dialect) -> list[tuple[Owner, Ref]]:
     the segment whose grammar uses it, or the named grammar (a dialect.add()
     entry) that does.
     """
-    cached = _WALKS.get(dialect)
-    if cached is not None:
-        return cached
-    found = _walk_references(dialect)
-    _WALKS[dialect] = found
-    return found
+    return _cached_walk(dialect).refs
 
 
-def _walk_references(dialect: Dialect) -> list[tuple[Owner, Ref]]:
-    """The walk behind _reference_walk(), uncached."""
+def _parser_walk(dialect: Dialect) -> list[tuple[Owner, TemplateParser]]:
+    """Every StringParser and MultiStringParser the dialect's grammar can reach.
+
+    Inline ones are found too, not just those registered under a name. Where
+    a parser is used is its segment or named grammar, as for Refs.
+    """
+    return _cached_walk(dialect).parsers
+
+
+def _walk_grammar(dialect: Dialect) -> _Walk:
+    """The walk behind _cached_walk(), uncached."""
     found: list[tuple[Owner, Ref]] = []
+    parsers: list[tuple[Owner, TemplateParser]] = []
     seen: set[int] = set()
     root = dialect.get_root_segment()
     assert isinstance(root, type)
@@ -276,6 +303,10 @@ def _walk_references(dialect: Dialect) -> list[tuple[Owner, Ref]]:
         if id(node) in seen:
             continue
         seen.add(id(node))
+        if isinstance(node, (StringParser, MultiStringParser)):
+            # A leaf: its templates are text, not grammar.
+            parsers.append((owner, node))
+            continue
         if not inspect.isclass(node) and isinstance(node, Ref):
             found.append((owner, node))
             try:
@@ -298,7 +329,7 @@ def _walk_references(dialect: Dialect) -> list[tuple[Owner, Ref]]:
             child_owner = owner
         for child in _grammar_children(node):
             stack.append((child_owner, child))
-    return found
+    return _Walk(found, parsers)
 
 
 def _reference_uses(dialect: Dialect) -> dict[str, set[Owner]]:
@@ -968,6 +999,90 @@ def _keywords_without_a_parser_message(
     return "\n".join(lines) + _docs_line(dialect)
 
 
+def _keyword_parsers_accepting_unimplemented(
+    dialect: Dialect,
+) -> dict[str, set[Owner]]:
+    """Unimplemented words that a parser making a KeywordSegment accepts.
+
+    A StringParser or MultiStringParser whose class is a KeywordSegment says
+    each word it matches is a keyword here, so none of them may be
+    unimplemented. Inline parsers count, and so do named ones nothing reaches.
+    A parser registered under the unimplemented word's own name is left to
+    _unimplemented_with_own_segment(). Returns each word with where the
+    parsers that accept it are used.
+    """
+    found: dict[str, set[Owner]] = {}
+    for owner, parser in _parser_walk(dialect):
+        for word in _unimplemented_words_claimed(dialect, parser):
+            found.setdefault(word, set()).add(owner)
+    # The library holds hundreds of parsers, and naming where one was defined
+    # loads every ancestor dialect, so that is done only for a parser found.
+    for name, element in dialect._library.items():
+        if not isinstance(element, (StringParser, MultiStringParser)):
+            continue
+        words = _unimplemented_words_claimed(dialect, element)
+        if not words:
+            continue
+        owner = (name, _defining_module(dialect, name))
+        for word in words:
+            found.setdefault(word, set()).add(owner)
+    return found
+
+
+def _unimplemented_words_claimed(dialect: Dialect, parser: TemplateParser) -> list[str]:
+    """The unimplemented words a parser claims as keywords.
+
+    Empty unless the parser makes a KeywordSegment. A word whose own
+    <Word>KeywordSegment is this parser is left to
+    _unimplemented_with_own_segment().
+    """
+    raw_class = parser.raw_class
+    if not (isinstance(raw_class, type) and issubclass(raw_class, KeywordSegment)):
+        return []
+    if isinstance(parser, StringParser):
+        words = {parser.template}
+    else:
+        words = set(parser.templates)
+    unimplemented = dialect.sets("unimplemented_keywords")
+    claimed = []
+    for word in sorted(words & unimplemented):
+        own_name = word.capitalize() + "KeywordSegment"
+        if dialect._library.get(own_name) is not parser:
+            claimed.append(word)
+    return claimed
+
+
+def _keyword_parsers_accepting_unimplemented_message(
+    dialect: Dialect, found: dict[str, set[Owner]]
+) -> str:
+    """Say which unimplemented words a keyword parser still accepts."""
+    name = dialect.name
+    lines = [
+        f"These words are unimplemented in {name}, but a parser that makes a "
+        "KeywordSegment still accepts them, so grammar using that parser "
+        "parses the word as a keyword. Nothing crashes, but one says the "
+        "database doesn't have the word and the other says it's a keyword "
+        "here, so decide which: if the database has the word, give it a "
+        "present status other than unimplemented; if it doesn't, take it out "
+        "of the parser."
+    ]
+    inherited = False
+    for word, owners in sorted(found.items()):
+        where, modules = _segments_and_files(owners)
+        files = ", ".join(_dialect_file(module) for module in modules)
+        lines.append(f"- {word}: accepted by a keyword parser in {where} ({files})")
+        if any(module != f"dialect_{name}" for module in modules):
+            inherited = True
+    if inherited:
+        lines.append(
+            f"  Some of these parsers come from a dialect {name} inherits from. "
+            f"The conflict is only in {name}, so to take the word out for {name} "
+            f"alone, override the parser or the grammar using it in {name}. "
+            "Changing the original changes every dialect that uses it."
+        )
+    return "\n".join(lines) + _docs_line(dialect)
+
+
 def _unimplemented_with_own_segment(dialect: Dialect) -> dict[str, str]:
     """Unimplemented words with a keyword segment defined by hand.
 
@@ -1262,6 +1377,92 @@ def test_keywords_without_a_parser_are_found() -> None:
     }
     assert not _unimplemented_with_own_segment(expanded)
     assert "- ZZFOO: ZzfooKeywordSegment is a Nothing, defined in" in message
+
+
+@pytest.mark.parametrize("dialect_name", ALL_DIALECTS)
+def test_keyword_parsers_accept_no_unimplemented_word(dialect_name: str) -> None:
+    """Test that no parser making a KeywordSegment accepts an unimplemented word.
+
+    The two contradict each other, so this runs for every dialect, audited or
+    not.
+    """
+    dialect = _report_dialect(dialect_name)
+    found = _keyword_parsers_accepting_unimplemented(dialect)
+
+    assert not found, _keyword_parsers_accepting_unimplemented_message(dialect, found)
+
+
+class _InlineFormsSegment(BaseSegment):
+    """A select modifier with inline parsers, a keyword one and a plain one."""
+
+    type = "select_clause_modifier"
+    match_grammar = Sequence(
+        "DISTINCT",
+        MultiStringParser(["ZZA", "ZZB"], KeywordSegment),
+        MultiStringParser(["ZZC"], CodeSegment),
+    )
+
+
+_InlineFormsSegment.__module__ = "sqlfluff.dialects.dialect_zzinline"
+
+
+def test_keyword_parsers_accepting_unimplemented_are_found(monkeypatch) -> None:
+    """Test a named parser in a parent, an inline one, and what is left alone.
+
+    The parent's ZzfmtKeywordSegment also accepts ZZFMTFILE. A child that
+    declares ZZFMTFILE unimplemented is found, traced to the parent, and the
+    parent itself isn't. ZZFMT itself is the own-segment check's case, and a
+    parser making a CodeSegment (ZZC) is no keyword claim, so neither is
+    reported here. The test-built parent isn't loadable by name, so it is
+    registered for the lookup that names where the parser was defined.
+    """
+    made: dict[str, Dialect] = {}
+    real_load = load_raw_dialect
+
+    def load(name: str) -> Dialect:
+        if name in made:
+            return made[name]
+        return real_load(name)
+
+    monkeypatch.setitem(globals(), "load_raw_dialect", load)
+    parent = load("ansi").copy_as("zzfmtparent")
+    parent.add(
+        ZzfmtKeywordSegment=MultiStringParser(["ZZFMT", "ZZFMTFILE"], KeywordSegment)
+    )
+    _declare(parent, unreserved=["ZZFMT"])
+    made[parent.name] = parent
+    child = parent.copy_as("zzfmtchild")
+    _declare(child, unimplemented=["ZZFMTFILE"])
+    child_found = _keyword_parsers_accepting_unimplemented(child.expand())
+    parent_found = _keyword_parsers_accepting_unimplemented(parent.expand())
+    own = parent.copy_as("zzfmtown")
+    _declare(own, unimplemented=["ZZFMT"])
+    own_expanded = own.expand()
+    inline = load_raw_dialect("ansi").copy_as("zzinline")
+    inline.replace(SelectClauseModifierSegment=_InlineFormsSegment)
+    _declare(inline, unimplemented=["ZZB", "ZZC"])
+    inline_expanded = inline.expand()
+    inline_found = _keyword_parsers_accepting_unimplemented(inline_expanded)
+    message = _flat(
+        _keyword_parsers_accepting_unimplemented_message(inline_expanded, inline_found)
+    )
+
+    child_message = _flat(
+        _keyword_parsers_accepting_unimplemented_message(child.expand(), child_found)
+    )
+
+    assert child_found == {
+        "ZZFMTFILE": {("ZzfmtKeywordSegment", "dialect_zzfmtparent")}
+    }
+    assert "override the parser or the grammar using it in zzfmtchild" in (
+        child_message
+    )
+    assert "override the parser" not in message
+    assert not parent_found
+    assert not _keyword_parsers_accepting_unimplemented(own_expanded)
+    assert _unimplemented_with_own_segment(own_expanded)
+    assert inline_found == {"ZZB": {("_InlineFormsSegment", "dialect_zzinline")}}
+    assert "- ZZB: accepted by a keyword parser in _InlineFormsSegment" in message
 
 
 def test_unimplemented_with_own_segment_is_found() -> None:
@@ -2265,6 +2466,16 @@ def _audit_findings(name: str, dialect: Dialect) -> list[Finding]:
                 "error",
                 len(taken),
                 _keyword_names_taken_by_classes_message(dialect, taken),
+            )
+        )
+    accepted = _keyword_parsers_accepting_unimplemented(dialect)
+    if accepted:
+        findings.append(
+            Finding(
+                "Unimplemented words a keyword parser accepts",
+                "warning",
+                len(accepted),
+                _keyword_parsers_accepting_unimplemented_message(dialect, accepted),
             )
         )
     own_segment = _unimplemented_with_own_segment(dialect)
