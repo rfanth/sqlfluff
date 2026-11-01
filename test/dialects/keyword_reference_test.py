@@ -131,15 +131,17 @@ out, but they still count.
 
 import contextlib
 import functools
+import gc
 import inspect
 import os
 import re
 import signal
 import sys
 import textwrap
+import weakref
 from collections.abc import Iterator, Mapping
 from difflib import get_close_matches
-from typing import NamedTuple, Union, cast
+from typing import NamedTuple, Optional, Union, cast
 from weakref import WeakKeyDictionary
 
 import pytest
@@ -230,42 +232,56 @@ def _defining_module(dialect: Dialect, element_name: str) -> str:
     Dialects inherit their parent's library as is, so the defining dialect is
     the furthest ancestor still holding the very same object.
     """
-    lineage = _lineage(dialect)
-    element = lineage[0]._library.get(element_name)
-    current = lineage[0]
-    for parent in lineage[1:]:
+    current, ancestors = _lineage(dialect)
+    element = current._library.get(element_name)
+    for parent in ancestors:
         if parent._library.get(element_name) is not element:
             break
         current = parent
     return f"dialect_{current.name}"
 
 
+class _Lineage(NamedTuple):
+    """A dialect's raw form, as loaded by name, and its ancestors, nearest first.
+
+    raw is None for a dialect built in a test, which isn't loadable by name
+    and so is its own raw form. It isn't stored then: _LINEAGES holds its
+    values strongly, so a value holding its own key would keep that dialect
+    alive for good.
+    """
+
+    raw: Optional[Dialect]
+    ancestors: list[Dialect]
+
+
 # One lineage per dialect object. load_raw_dialect() rescans the dialect's
 # module each time it is called, and the checks name where elements were
 # defined tens of thousands of times, so loading the ancestors once per
 # dialect is most of what keeps the audit quick. Keyed weakly, like _WALKS.
-_LINEAGES: "WeakKeyDictionary[Dialect, list[Dialect]]" = WeakKeyDictionary()
+_LINEAGES: "WeakKeyDictionary[Dialect, _Lineage]" = WeakKeyDictionary()
 
 
-def _lineage(dialect: Dialect) -> list[Dialect]:
-    """The raw dialect and each of its ancestors, nearest first, loaded once.
+def _lineage(dialect: Dialect) -> tuple[Dialect, list[Dialect]]:
+    """The raw dialect and its ancestors, nearest first, loaded once.
 
     A dialect built in a test isn't loadable by name, so the lineage starts
     from it as given.
     """
     cached = _LINEAGES.get(dialect)
-    if cached is not None:
-        return cached
-    try:
-        current = load_raw_dialect(dialect.name)
-    except KeyError:
-        current = dialect
-    lineage = [current]
-    while current.inherits_from:
-        current = load_raw_dialect(current.inherits_from)
-        lineage.append(current)
-    _LINEAGES[dialect] = lineage
-    return lineage
+    if cached is None:
+        try:
+            raw: Optional[Dialect] = load_raw_dialect(dialect.name)
+        except KeyError:
+            raw = None
+        current = dialect if raw is None else raw
+        ancestors = []
+        while current.inherits_from:
+            current = load_raw_dialect(current.inherits_from)
+            ancestors.append(current)
+        cached = _Lineage(raw, ancestors)
+        _LINEAGES[dialect] = cached
+    start = dialect if cached.raw is None else cached.raw
+    return start, cached.ancestors
 
 
 # One walk per dialect object: the checks each need it, and a walk takes
@@ -1363,6 +1379,23 @@ def test_keyword_names_taken_by_classes_are_found_in_descendants(monkeypatch) ->
         "zzlitchild": expected,
         "zzlitgrandchild": expected,
     }
+
+
+def test_dialect_built_in_a_test_is_not_kept_alive() -> None:
+    """Test that naming where an element was defined doesn't keep a dialect alive.
+
+    A dialect built in a test is its own raw form. If its cached lineage held
+    it, the weakly keyed cache would keep it, and every dialect built in a
+    test, for the whole run.
+    """
+    dialect = load_raw_dialect("ansi").copy_as("zzcollected")
+    assert _defining_module(dialect, "SelectStatementSegment") == "dialect_ansi"
+    collected = weakref.ref(dialect)
+
+    del dialect
+    gc.collect()
+
+    assert collected() is None
 
 
 @pytest.mark.parametrize("dialect_name", ALL_DIALECTS)
