@@ -56,8 +56,8 @@ Even more optional.
    If you picked those words correctly, every entry is right. If you didn't,
    this finds grammar support that a wrong choice is hiding. Check each one:
 
-   - If your server supports it, move the word from unimplemented= to
-     unreserved= or reserved=.
+   - If your server supports it, list the word in unreserved= or
+     reserved=, and take it out of unimplemented= if it's there.
    - If it doesn't, you can override that grammar in your own dialect, with
      Nothing() or with a copy of the parent's grammar minus the parts your
      server lacks, so anyone reading the code later can see it was on
@@ -554,7 +554,7 @@ def _status_needed(dialect: Dialect) -> str:
         f"keyword (reserved if it can never be a name there), or unimplemented "
         f"if {vendor}'s server doesn't implement it, which stops the parts of "
         "grammar that need it from matching. If you can't check, unreserved "
-        f"keeps the grammar working, as the rest of what {name} inherits does. "
+        "keeps the grammar working. "
         f"{_where_keywords_are_set(name)}"
     )
 
