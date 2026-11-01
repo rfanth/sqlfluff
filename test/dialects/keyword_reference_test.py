@@ -49,7 +49,7 @@ Even more optional.
    this finds grammar support that a wrong choice is hiding. Check each one:
 
    - If your server supports it, move the word from unimplemented= to
-     unreserved=.
+     unreserved= or reserved=.
    - If it doesn't, you can override that grammar in your own dialect, with
      Nothing() or with a copy of the parent's grammar minus the parts your
      server lacks, so anyone reading the code later can see it was on
@@ -57,7 +57,11 @@ Even more optional.
      audit easy after the parent dialect (usually ansi) changes.
 
 5. Update your keyword lists from the server's docs or source at least every
-   few years, to keep the dialect current.
+   few years, to keep the dialect current. Remember, the server may use words
+   that aren't in its published list, and sqlfluff needs some of them to parse
+   correctly, so don't remove a word without checking whether the server uses
+   it anyway. sqlfluff doesn't always implement all of a server's grammar, so
+   a word no sqlfluff grammar uses can still be one the server has.
 
 To make the above work, the audit can't encourage dialects to remove words
 from unimplemented if the dialect's grammar doesn't use them. A dialect that
@@ -1618,16 +1622,14 @@ def test_unaudited_dialects_all_exist() -> None:
 def _unimplemented_in_own_grammar_message(
     dialect: Dialect, found: dict[str, set[Owner]]
 ) -> str:
-    """Say which tagged words the dialect's own grammar needs."""
+    """Say which unimplemented words the dialect's own grammar needs."""
     name = dialect.name
     vendor = dialect.formatted_name
     lines = [
-        f"{name}'s own grammar uses these words, but they're tagged "
-        f"unimplemented in {name} ({vendor}'s server doesn't implement them), so "
-        "that grammar never matches. Unimplemented is for grammar inherited "
-        f"from a parent. Either {vendor} does implement them, and they need a "
-        "keyword status instead of the tag, or the grammar that uses them is "
-        f"wrong for {name}. {_where_keywords_are_set(name)}"
+        f"{name}'s own grammar uses these words, but they're unimplemented in "
+        f"{name}, so that grammar never matches. Either {vendor} has the words, "
+        "and they need to be reserved or unreserved, or the grammar is wrong "
+        f"for {name}. {_where_keywords_are_set(name)}"
     ]
     for word, owners in sorted(found.items()):
         segments, _ = _segments_and_files(owners)
@@ -1927,8 +1929,9 @@ _OwnGrammarSegment.__module__ = "sqlfluff.dialects.dialect_zzown"
 def test_checker_finds_an_unimplemented_word_in_own_grammar() -> None:
     """Test that unimplemented can't switch off the dialect's own grammar.
 
-    The same word used only by inherited grammar is fine: that is what
-    unimplemented is for.
+    The same word used only by inherited grammar is fine: unimplemented
+    switches that grammar off. A use in own grammar is reported once, as the
+    warning, not again in the notice about inherited grammar.
     """
     dialect = load_raw_dialect("ansi").copy_as("zzown")
     dialect.replace(SelectClauseModifierSegment=_OwnGrammarSegment)
@@ -1940,6 +1943,9 @@ def test_checker_finds_an_unimplemented_word_in_own_grammar() -> None:
 
     assert found == {"ZZOWNWORD": {("_OwnGrammarSegment", "dialect_zzown")}}
     assert "- ZZOWNWORD: in _OwnGrammarSegment" in message
+    titles = {finding.title for finding in _audit_findings("zzown", expanded)}
+    assert "Unimplemented words in own grammar" in titles
+    assert "Inherited grammar that stops matching" not in titles
 
     inherited = _faulty_dialect("zzinherits")
     assert "OPTIMIZER_COSTS" in inherited.sets("unimplemented_keywords")
@@ -2324,7 +2330,7 @@ def _settled_unimplemented_message(name: str, words: list[str]) -> str:
     """List unimplemented words that no longer hide any grammar."""
     return "\n".join(
         [
-            f"Tagged unimplemented in {name}, and no grammar {name} reaches uses "
+            f"Unimplemented in {name}, and no grammar {name} reaches uses "
             "them: grammar that needed them is overridden, or was never "
             "inherited. This is where a word the server lacks should end up.",
             "- the words:",
@@ -2457,15 +2463,10 @@ class Finding(NamedTuple):
 def _switched_off_message(name: str, switched_off: dict[str, set[Owner]]) -> str:
     """List inherited grammar that stops matching because of unimplemented words."""
     lines = [
-        f"These words are tagged unimplemented in {name}: its server doesn't "
-        "implement them, so the parts of inherited grammar that need them stop "
-        "matching. Check that these are features the server really lacks. A "
-        "large group can be right when the server lacks a whole feature, such "
-        "as stored procedures. Words that don't share a reason are the "
-        "suspicious ones; they often mean a keyword list was copied or "
-        "replaced wholesale, not checked word by word. Step 4 of the guide "
-        "at the top of test/dialects/keyword_reference_test.py says what to "
-        "do with each."
+        f"These words are unimplemented in {name}, so inherited grammar that "
+        "needs them stops matching. Check that the server really lacks them. "
+        "Step 4 of the guide at the top of "
+        "test/dialects/keyword_reference_test.py says what to do with each."
     ]
     for word, owners in sorted(switched_off.items()):
         users, _ = _segments_and_files(owners)
@@ -2488,7 +2489,13 @@ def _audit_findings(name: str, dialect: Dialect) -> list[Finding]:
     }
     overlaps = _overlaps(dialect)
     own_unimplemented = _unimplemented_in_own_grammar(dialect)
-    switched_off = _switched_off(dialect)
+    # The notice is about inherited grammar. A use in the dialect's own grammar
+    # is the warning above, so it isn't repeated there.
+    switched_off: dict[str, set[Owner]] = {}
+    for word, owners in _switched_off(dialect).items():
+        inherited = owners - own_unimplemented.get(word, set())
+        if inherited:
+            switched_off[word] = inherited
     findings: list[Finding] = []
     if keywords:
         findings.append(
